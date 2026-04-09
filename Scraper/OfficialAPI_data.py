@@ -1,5 +1,5 @@
 '''
-Since you can use the to request data from the API,
+Since you can use the official APIs to request data from the API,
 you can use the API to get data instead of scraping it from the website.
 This is more efficient and less likely to break if the website changes.
 One downside though you need a partnership with LinkedIn to access the API,
