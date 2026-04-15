@@ -12,7 +12,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 class LinkedInLoginHandler:
-    def __init__(self, chromedriver_path: str = "/usr/local/bin/chromedriver"):
+    def __init__(self, chromedriver_path: str = None):
         self.driver = None
         self.chromedriver_path = chromedriver_path
         self.setup_driver()
@@ -30,8 +30,11 @@ class LinkedInLoginHandler:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        service = Service(self.chromedriver_path)
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        if self.chromedriver_path:
+            service = Service(self.chromedriver_path)
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            self.driver = webdriver.Chrome(options=chrome_options)  # Auto-detects
         
         # Execute script to remove webdriver property
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")

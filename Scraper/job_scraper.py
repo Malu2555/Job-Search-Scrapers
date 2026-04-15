@@ -2,12 +2,10 @@
 import sys
 import os
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.service import Service as ChromeService  
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -16,16 +14,9 @@ import pandas as pd
 import time
 import logging
 from dotenv import load_dotenv
-#Add the scraper directory to python path for imports
-scraper_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(scraper_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-if scraper_dir not in sys.path:
-    sys.path.insert(0, scraper_dir)
 
-# Import the LinkedIn login handler
-from .linkedin_auth import LinkedInLoginHandler, LinkedInSessionManager
+
+
 # Load environment variables
 load_dotenv()
 
@@ -40,49 +31,89 @@ class LinkedInJobScraper:
         self.jobs_data = []
         self.email = os.getenv('LINKEDIN_EMAIL')
         self.password = os.getenv('LINKEDIN_PASSWORD')
-        self.chromedriver_path = os.getenv('CHROMEDRIVER_PATH', '/usr/local/bin/chromedriver')
+
+#automatically detect chromedriver path based on OS and add it to the class initialization
         
     def setup_driver(self):
         """Setup Chrome driver with options"""
         chrome_options = Options()
-        chrome_options.add_argument("--headless=False")  # open and see browser
-        # (if you do not want to see the browser, headless should equal True)
+        #chrome_options.add_argument("--headless")  # open and see browser
+
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         chrome_options.add_argument("--window-size=1920,1080")
-        
-        service = Service(self.chromedriver_path)
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.driver.implicitly_wait(10)
-        
-    def login(self):
-        """Login to LinkedIn using environment variables"""
-        if not self.email or not self.password:
-            logger.error("LinkedIn credentials not found in environment variables")
-            return False
+        #set up webdriver just normally, but use the Service class to specify the chromedriver path
+        self.driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
+        wait=WebDriverWait(self.driver,10)# wait for page to load
             
+    # DONT FIGHT WITH PYTHON IMPORT ISSUES, JUST HANDLE CAPTCHA MANUALLY WITH USER INTERVENTION
+            
+    def manual_captcha_handling(self) -> bool:
+        """Handle CAPTCHA manually with user intervention"""
         try:
-            self.driver.get("https://www.linkedin.com/login")
+            # Check if CAPTCHA is present
+            captcha_elements = self.driver.find_elements(By.CLASS_NAME, "captcha")
+            recaptcha_elements = self.driver.find_elements(By.CLASS_NAME, "g-recaptcha")
+            challenge_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'challenge')]")
             
-            # Enter credentials
-            email_input = self.driver.find_element(By.ID, "username")
-            password_input = self.driver.find_element(By.ID, "password")
-            
-            email_input.send_keys(self.email)
-            password_input.send_keys(self.password)
-        
-            
-            # Click login button
-            # Assuming the text inside the span is "Login" (replace with actual text)
-            xpath_selector = "//a[contains(@class, 'nav__button-secondary')]//span[contains(text(), 'sign in')]"
-
-            login_button = WebDriverWait(self.driver, 10).until(  EC.element_to_be_clickable((By.XPATH, xpath_selector)))
-            login_button.click()
+            if captcha_elements or recaptcha_elements or challenge_elements:
+                print("=" * 50)
+                print("🚨 CAPTCHA DETECTED!")
+                print("=" * 50)
+                print("Please complete the CAPTCHA manually in the browser window.")
+                print("Once completed, press ENTER to continue...")
+                print("=" * 50)
+                
+                # Wait for user to complete CAPTCHA
+                input("Press ENTER after completing CAPTCHA: ")
+                
+                # Verify login was successful
+                try:
+                    WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located((By.ID, "global-nav"))
+                    )
+                    logger.info("CAPTCHA handled successfully")
+                    return True
+                except TimeoutException:
+                    logger.warning("CAPTCHA may not be resolved yet")
+                    return self.manual_captcha_handling()  # Recursive call for retry
+                    
+            return True
             
         except Exception as e:
-         logger.error(f"Login failed: {e}")
-        return False
+            logger.error(f"Error in CAPTCHA handling: {e}")
+            return False
+
+    def login(self):
+            if not self.email or not self.password:
+                logger.error("linkedIn credentials not found in environment variable")
+                return False
+            try:
+               self.driver.get("https://www.linkedin.com/login")
+               
+            #enter credentials
+               email_input=self.driver.find_element(By.NAME, "email-address")
+               self.password_input=self.driver.find_element(By.ID, "password")
+               email_input.send_keys(self.email)
+               self.password_input.send_keys(self.password)
+               #handle captcha if it appears
+               self.manual_captcha_handling()
+               # Click login button
+               # Assuming the text inside the span is "Login" (replace with actual text)
+               xpath_selector = "//a[contains(@class, 'nav__button-secondary')]//span[contains(text(), 'sign in')]"
+
+               login_button = WebDriverWait(self.driver, 10).until(  EC.element_to_be_clickable((By.XPATH, xpath_selector)))
+               login_button.click()
+             # wait for login to complete
+               WebDriverWait(self.driver, 10).until(
+                   EC.presence_of_element_located((By.ID, "global-nav"))
+               )
+               logger.info("Login successful")
+               return True
+            except Exception as e:
+              logger.error(f"Login failed: {e}")
+              return False
     
     def search_jobs(self, keyword, location):
         """Search for jobs using the LinkedIn search interface"""
